@@ -1,8 +1,14 @@
 #!/bin/bash
 
+#######
+#
+# more info: https://github.com/morph027/zfs-cron-scrub-all-pools-sequentially
+#
+#######
+
 MAIL="morphsen@gmx.com"
 SCRIPT=${BASH_SOURCE[${#BASH_SOURCE[@]} - 1]}
-ARGS=$(getopt -o e: -l "exclude:" -n "$SCRIPT" -- "$@");
+ARGS=$(getopt -o e:s -l "exclude:skip-by-timerange" -n "$SCRIPT" -- "$@");
 
 eval set -- "$ARGS";
 
@@ -15,6 +21,11 @@ do
         EXCLUDE=$1
         shift
       fi
+    ;;
+
+    -s|--skip-by-timerange)
+      shift
+      SKIP="true"
     ;;
 
     --)
@@ -40,14 +51,24 @@ fi
 for ZPOOL in ${ZPOOLS[@]}
 do
 
-  LAST_SCRUB=$(zfs get -Hp -o value scrub:last $ZPOOL)
   NOW=$(date +%s)
+  # get date of last scrub
+  LAST_SCRUB=$(zfs get -Hp -o value scrub:last $ZPOOL)
+  # set to now, if does not exist
+  if [[ ! $LAST_SCRUB =~ ^[0-9]+$ ]]; then
+    LAST_SCRUB=$NOW
+  fi
   # seconds to compare unix timestamps, e.g. 2592000 is a month
   SECONDS=2592000
-  # how many of these seconds do we want to skip?
-  MULTIPLIER=3
+  # if --skip-by-timerange is set, we want to define it
+  if [ ! -z $SKIP ]; then
+    # how many of these seconds do we want to skip?
+    MULTIPLIER=3
+  else
+    MULTIPLIER=0
+  fi
   # get the time of the last scrub plus the range we want to skip
-  DIFF=$(expr $LAST + $(expr $MULTIPLIER \* $SECONDS))
+  DIFF=$(expr $LAST_SCRUB + $(expr $MULTIPLIER \* $SECONDS))
 
   if [ $DIFF -le $NOW ]; then
     logger -t scrub-all "start scrubbing $ZPOOL ..."
