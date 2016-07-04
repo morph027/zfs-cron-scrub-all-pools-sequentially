@@ -40,55 +40,66 @@ do
   esac
 done
 
+# some escaping for the regex
 EXCLUDE_LIST="${EXCLUDE//,/\\|}"
 
+# render the array of pools to scrub
 if [ ${#EXCLUDE_LIST} -eq 0 ]; then
+  # no pool to exclude, use all
   ZPOOLS=( $(zpool list -H -o name) )
 else
+  # use sed to strip the excluded pools from the list
   ZPOOLS=( $(zpool list -H -o name | sed '/\('$EXCLUDE_LIST'\)/d') )
 fi
 
 for ZPOOL in ${ZPOOLS[@]}
 do
+  # check, if pool really exists
+  zfs list -H $ZPOOL >/dev/null 2>&1
 
-  NOW=$(date +%s)
-  # get date of last scrub
-  LAST_SCRUB=$(zfs get -Hp -o value scrub:last $ZPOOL)
-  # set to now, if does not exist
-  if [[ ! $LAST_SCRUB =~ ^[0-9]+$ ]]; then
-    LAST_SCRUB=$NOW
-  fi
-  # seconds to compare unix timestamps, e.g. 2592000 is a month
-  SECONDS=2592000
-  # if --skip-by-timerange is set, we want to define it
-  if [ ! -z $SKIP ]; then
-    # how many of these seconds do we want to skip?
-    MULTIPLIER=3
+  if [ $? -eq 0 ]; then
+
+    NOW=$(date +%s)
+    # get date of last scrub
+    LAST_SCRUB=$(zfs get -Hp -o value scrub:last $ZPOOL)
+    # set to now, if does not exist
+    if [[ ! $LAST_SCRUB =~ ^[0-9]+$ ]]; then
+      LAST_SCRUB=$NOW
+    fi
+    # seconds to compare unix timestamps, e.g. 2592000 is a month
+    SECONDS=2592000
+    # if --skip-by-timerange is set, we want to define it
+    if [ ! -z $SKIP ]; then
+      # how many of these seconds do we want to skip?
+      MULTIPLIER=3
+    else
+      MULTIPLIER=0
+    fi
+    # get the time of the last scrub plus the range we want to skip
+    DIFF=$(expr $LAST_SCRUB + $(expr $MULTIPLIER \* $SECONDS))
+
+    if [ $DIFF -le $NOW ]; then
+      logger -t scrub-all "start scrubbing $ZPOOL ..."
+      echo "start scrubbing $ZPOOL ..." | mail -s "zpool scrub started" $MAIL
+      # start scrubbing
+      zpool scrub $ZPOOL
+
+      # wait until scrub is finished
+      while zpool status $ZPOOL | grep 'scan:  *scrub in progress' > /dev/null
+      do
+        sleep 60
+      done
+
+      # send a report
+      zpool status $ZPOOL | mail -s "zpool status: $ZPOOL" $MAIL
+
+      # log scrub date
+      zfs set scrub:last=$(date +%s) $ZPOOL
+    else
+      logger -t scrub-all "skipping scrub @ $ZPOOL ..."
+    fi
   else
-    MULTIPLIER=0
+    logger -t scrub-all "pool $ZPOOL does not exist"
+    continue
   fi
-  # get the time of the last scrub plus the range we want to skip
-  DIFF=$(expr $LAST_SCRUB + $(expr $MULTIPLIER \* $SECONDS))
-
-  if [ $DIFF -le $NOW ]; then
-    logger -t scrub-all "start scrubbing $ZPOOL ..."
-    echo "start scrubbing $ZPOOL ..." | mail -s "zpool scrub started" $MAIL
-    # start scrubbing
-    zpool scrub $ZPOOL
-
-    # wait till scrub is finished
-    while zpool status $ZPOOL | grep 'scan:  *scrub in progress' > /dev/null
-    do
-      sleep 60
-    done
-
-    # send a report
-    zpool status $ZPOOL | mail -s "zpool status: $ZPOOL" $MAIL
-
-    # log scrub date
-    zfs set scrub:last=$(date +%s) $ZPOOL
-  else
-    logger -t scrub-all "skipping scrub @ $ZPOOL ..."
-  fi
-
 done
