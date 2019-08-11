@@ -6,7 +6,7 @@
 #
 #######
 
-MAIL="morphsen@gmx.com"
+#MAIL="john.doe@example.com"
 SCRIPT=${BASH_SOURCE[${#BASH_SOURCE[@]} - 1]}
 ARGS=$(getopt -o e:s -l "exclude:skip-by-timerange" -n "$SCRIPT" -- "$@");
 
@@ -39,6 +39,12 @@ do
     ;;
   esac
 done
+
+mailer() {
+  if [ ! -z ${MAILER+x} ]; then
+    mail "$*"
+  fi
+}
 
 # some escaping for the regex
 EXCLUDE_LIST="${EXCLUDE//,/\\|}"
@@ -80,7 +86,7 @@ do
 
     if [ $DIFF -le $NOW ]; then
       logger -t scrub-all "start scrubbing $ZPOOL ..."
-      echo "start scrubbing $ZPOOL ..." | mail -s "zpool scrub started" $MAIL
+      echo "start scrubbing $ZPOOL ..." | mailer -s "zpool scrub started" $MAIL
       # start scrubbing
       zpool scrub $ZPOOL
 
@@ -91,7 +97,7 @@ do
       done
 
       # send a report
-      zpool status $ZPOOL | mail -s "zpool status: $ZPOOL" $MAIL
+      zpool status $ZPOOL | mailer -s "zpool status: $ZPOOL" $MAIL
 
       # log scrub date
       zfs set scrub:last=$(date +%s) $ZPOOL
