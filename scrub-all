@@ -9,6 +9,7 @@
 #MAIL="john.doe@example.com"
 SCRIPT=${BASH_SOURCE[${#BASH_SOURCE[@]} - 1]}
 ARGS=$(getopt -o e:s -l "exclude:skip-by-timerange" -n "$SCRIPT" -- "$@");
+PATH=$PATH:/usr/sbin
 
 eval set -- "$ARGS";
 
